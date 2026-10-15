@@ -1,4 +1,4 @@
-# Zsh Buddy Theme - Version 1.4.1
+# Zsh Buddy Theme - Version 1.5.0
 # A dynamic, humorous Vietnamese developer-focused Zsh theme
 # Repository: https://github.com/hieudnm/zsh-buddy-theme
 
@@ -6,8 +6,51 @@
 zmodload zsh/datetime 2>/dev/null || \
     print -u2 "Zsh Buddy Theme: the zsh/datetime module is missing; time-based messages and timers will not work."
 
+# ---------------------------------------------------------------------------
+# Configuration
+#
+# Every setting below can be given either as an environment variable (set it
+# before this file is sourced, e.g. in ~/.zshenv) or as a KEY="value" line in
+# ~/.troll_themer/config. Environment wins over the config file, and the config
+# file is never overwritten by `update`. Defaults are applied where the value
+# is used, so all of these can also be exported from the custom section at the
+# end of this file.
+#
+#   TROLL_LANG               vi        language pack (vi, en, ...)
+#   TROLL_MODE               -         "serious" disables all messages
+#   ZBT_HISTFILE             ~/.zhistory
+#   ZBT_UPDATE_CHECK         true      daily check for a new theme version
+#   ZBT_CURL_MAX_TIME        10        seconds; hard limit for every download
+#   ZBT_TROLL_INTERVAL       300       seconds between time-based messages
+#   ZBT_TROLL_CHANCE         10        percent chance to show a time-based message
+#   ZBT_OVERTIME_START       17:30     overtime reminder window (HH:MM)
+#   ZBT_OVERTIME_END         18:30
+#   ZBT_EXEC_TIME_MIN_MS     0         only show [N ms] when the command took at least N ms
+#   ZBT_GIT_SHOW             true      show git branch/status in the prompt
+#   ZBT_GIT_UNTRACKED        true      count untracked files as "dirty" (false is faster on huge repos)
+#   ZBT_GIT_AHEAD_BEHIND     true      show commits ahead/behind upstream (uses the same git call)
+#   ZBT_COLOR_GIT_CLEAN      10        prompt colors: a name (red, green) or a 0-255 index
+#   ZBT_COLOR_GIT_DIRTY      9
+#   ZBT_COLOR_VENV           11
+# ---------------------------------------------------------------------------
+_zbt_load_config() {
+    setopt localoptions extendedglob   # for the ## repetition in the key pattern
+    local config_file="$HOME/.troll_themer/config" line key value
+    [[ -f "$config_file" ]] || return 0
+    while IFS= read -r line; do
+        [[ "$line" == (TROLL_LANG|TROLL_MODE|ZBT_[A-Z0-9_]##)=* ]] || continue
+        key="${line%%=*}"
+        value="${line#*=}"
+        value="${value%%\#*}"                     # drop trailing comment (\# : literal under extendedglob)
+        value="${value//[\"\' $'\t'$'\r']/}"      # drop quotes, blanks, CR
+        [[ -n "${(P)key+x}" ]] && continue         # environment variable wins
+        [[ -n "$value" ]] && typeset -g "$key=$value"
+    done < "$config_file"
+}
+_zbt_load_config
+
 # History configuration
-HISTFILE=$HOME/.zhistory
+HISTFILE="${ZBT_HISTFILE:-$HOME/.zhistory}"
 HISTSIZE=10000
 SAVEHIST=10000
 setopt APPEND_HISTORY        # Append to history instead of overwriting
@@ -26,7 +69,9 @@ setopt HIST_FCNTL_LOCK       # Use file locking for history file
 # Skip "command not found" from history
 zshaddhistory() {
     local cmd="${1%$'\n'}"
-    local first_word="${${(z)cmd}[1]}"
+    local -a words
+    words=(${(z)cmd})
+    local first_word="${words[1]}"
     [[ -z "$first_word" ]] && return 0
     # Allow builtins, aliases, functions, and existing commands
     whence "$first_word" &>/dev/null && return 0
@@ -52,9 +97,8 @@ alias uninstall="uninstall_zsh_buddy"
 alias clean-backups="clean_backups"
 
 # Version for update checking
-ZSHRC_VERSION="1.4.1"
+ZSHRC_VERSION="1.5.0"
 THEME_NAME="Zsh Buddy Theme"
-troll_colors=(91 92 93 94 95 96) # red green yellow blue magenta cyan
 
 # Current time in milliseconds, pure zsh (no fork). Sets REPLY.
 _zbt_now_ms() {
@@ -71,28 +115,9 @@ typeset -A MESSAGES  # Associative array to store messages
 [[ ! -d "$HOME/.troll_themer" ]] && mkdir -p "$HOME/.troll_themer"
 [[ ! -d "$HOME/.troll_themer/lang" ]] && mkdir -p "$HOME/.troll_themer/lang"
 
-# Load language configuration
+# Load language configuration (environment, then ~/.troll_themer/config, then "vi"). Sets REPLY.
 load_language_config() {
-    local config_file="$HOME/.troll_themer/config"
-    local lang="vi"  # default language
-    
-    # Check environment variable first
-    if [[ -n "$TROLL_LANG" ]]; then
-        lang="$TROLL_LANG"
-    # Then check config file
-    elif [[ -f "$config_file" ]]; then
-        local line found=""
-        while IFS= read -r line; do
-            if [[ "$line" == TROLL_LANG=* ]]; then
-                found="${line#TROLL_LANG=}"
-                found="${found%%#*}"              # drop trailing comment
-                found="${found//[\"\' $'\t'$'\r']/}"  # drop quotes, blanks, CR
-            fi
-        done < "$config_file"
-        [[ -n "$found" ]] && lang="$found"
-    fi
-
-    REPLY="$lang"
+    REPLY="${TROLL_LANG:-vi}"
 }
 
 # Load messages from language file
@@ -190,23 +215,23 @@ troll_by_time() {
     strftime -s hour '%H' $EPOCHSECONDS
     strftime -s minute '%M' $EPOCHSECONDS
 
-    # Set seed for RANDOM based on current time (seconds from epoch)
-    RANDOM=$EPOCHSECONDS
-
-    local random_color=${troll_colors[$((RANDOM % ${#troll_colors[@]}))]}
     local message
     local chance=$((RANDOM % 100))
-    # Check if within 17:30-18:30
     local force_show=${1:-false}
+
+    # Overtime window (default 17:30-18:30), compared in minutes since midnight
+    local ot_start="${ZBT_OVERTIME_START:-17:30}" ot_end="${ZBT_OVERTIME_END:-18:30}"
+    local now_min=$(( 10#$hour * 60 + 10#$minute ))
+    local start_min=$(( 10#${ot_start%%:*} * 60 + 10#${ot_start##*:} ))
+    local end_min=$(( 10#${ot_end%%:*} * 60 + 10#${ot_end##*:} ))
     local force_show_by_time=false
-    if [[ ("$hour" == 17 && "$minute" -ge 30) || ("$hour" == 18 && "$minute" -le 30) ]]; then
+    if (( now_min >= start_min && now_min <= end_min )); then
         force_show_by_time=true
     fi
 
-    # Always show message when calling function (removed 10% probability logic for easier testing)
     if [[ "$force_show_by_time" == true ]]; then
         _get_random_message "overtime"; message=$REPLY
-    elif (( chance < 10 )) || [[ "$force_show" == true ]]; then
+    elif (( chance < ${ZBT_TROLL_CHANCE:-10} )) || [[ "$force_show" == true ]]; then
         case $hour in
             00|01) _get_random_message "hour_00"; message=$REPLY ;;
             02|03) _get_random_message "hour_02"; message=$REPLY ;;
@@ -232,51 +257,53 @@ troll_by_time() {
 
 # Optimized troll command
 troll_cmd() {
-    local cmd="$1" message color
+    # Pad with spaces so patterns match whole words: " ls " matches `ls -la`
+    # and `cd x && ls`, but not `tools` or `false`.
+    local cmd=" ${(j: :)${(z)1}} " message color
     case "$cmd" in
-        *git\ commit*) _get_message "cmd_git_commit"; message=$REPLY; color=93 ;;
-        *git\ push*) _get_message "cmd_git_push"; message=$REPLY; color=94 ;;
-        *git\ st*|*git\ status*) _get_message "cmd_git_status"; message=$REPLY; color=92 ;;
-        *git\ pull*) _get_message "cmd_git_pull"; message=$REPLY; color=91 ;;
-        *git\ merge*) _get_message "cmd_git_merge"; message=$REPLY; color=95 ;;
-        *git\ rebase*) _get_message "cmd_git_rebase"; message=$REPLY; color=96 ;;
-        *git\ log*) _get_message "cmd_git_log"; message=$REPLY; color=93 ;;
-        *git\ diff*) _get_message "cmd_git_diff"; message=$REPLY; color=92 ;;
-        *git\ reset*) _get_message "cmd_git_reset"; message=$REPLY; color=91 ;;
-        *git\ cherry-pick*) _get_message "cmd_git_cherry_pick"; message=$REPLY; color=95 ;;
-        *python*) _get_message "cmd_python"; message=$REPLY; color=95 ;;
-        *pip*) _get_message "cmd_pip"; message=$REPLY; color=92 ;;
-        *npm\ install*) _get_message "cmd_npm_install"; message=$REPLY; color=91 ;;
-        *npm\ start*) _get_message "cmd_npm_start"; message=$REPLY; color=94 ;;
-        *npm\ run\ build*) _get_message "cmd_npm_build"; message=$REPLY; color=95 ;;
-        *yarn*) _get_message "cmd_yarn"; message=$REPLY; color=93 ;;
-        *rm\ -rf*) _get_message "cmd_rm"; message=$REPLY; color=96 ;;
-        *mv*) _get_message "cmd_mv"; message=$REPLY; color=92 ;;
-        *cp*) _get_message "cmd_cp"; message=$REPLY; color=94 ;;
-        *cd*) _get_message "cmd_cd"; message=$REPLY; color=93 ;;
-        *ls*) _get_message "cmd_ls"; message=$REPLY; color=92 ;;
-        *cat*) _get_message "cmd_cat"; message=$REPLY; color=94 ;;
-        *vim*) _get_message "cmd_vim"; message=$REPLY; color=91 ;;
-        *nano*) _get_message "cmd_nano"; message=$REPLY; color=95 ;;
-        *docker\ build*) _get_message "cmd_docker_build"; message=$REPLY; color=94 ;;
-        *docker\ run*) _get_message "cmd_docker_run"; message=$REPLY; color=95 ;;
-        *docker\ ps*) _get_message "cmd_docker_ps"; message=$REPLY; color=92 ;;
-        *docker\ stop*) _get_message "cmd_docker_stop"; message=$REPLY; color=91 ;;
-        *sudo*) _get_message "cmd_sudo"; message=$REPLY; color=91 ;;
-        *chmod*) _get_message "cmd_chmod"; message=$REPLY; color=93 ;;
-        *chown*) _get_message "cmd_chown"; message=$REPLY; color=94 ;;
-        *scp*) _get_message "cmd_scp"; message=$REPLY; color=92 ;;
-        *rsync*) _get_message "cmd_rsync"; message=$REPLY; color=95 ;;
-        *kill*) _get_message "cmd_kill"; message=$REPLY; color=91 ;;
-        *ps\ aux*) _get_message "cmd_ps"; message=$REPLY; color=93 ;;
-        *htop*) _get_message "cmd_htop"; message=$REPLY; color=94 ;;
-        *df\ -h*) _get_message "cmd_df"; message=$REPLY; color=92 ;;
-        *free\ -m*) _get_message "cmd_free"; message=$REPLY; color=95 ;;
-        *whoami*) _get_message "cmd_whoami"; message=$REPLY; color=96 ;;
-        *date*) _get_message "cmd_date"; message=$REPLY; color=91 ;;
-        *uptime*) _get_message "cmd_uptime"; message=$REPLY; color=94 ;;
-        *reboot*) _get_message "cmd_reboot"; message=$REPLY; color=93 ;;
-        *shutdown*) _get_message "cmd_shutdown"; message=$REPLY; color=92 ;;
+        *" git commit "*) _get_message "cmd_git_commit"; message=$REPLY; color=93 ;;
+        *" git push "*) _get_message "cmd_git_push"; message=$REPLY; color=94 ;;
+        *" git st "*|*" git status "*) _get_message "cmd_git_status"; message=$REPLY; color=92 ;;
+        *" git pull "*) _get_message "cmd_git_pull"; message=$REPLY; color=91 ;;
+        *" git merge "*) _get_message "cmd_git_merge"; message=$REPLY; color=95 ;;
+        *" git rebase "*) _get_message "cmd_git_rebase"; message=$REPLY; color=96 ;;
+        *" git log "*) _get_message "cmd_git_log"; message=$REPLY; color=93 ;;
+        *" git diff "*) _get_message "cmd_git_diff"; message=$REPLY; color=92 ;;
+        *" git reset "*) _get_message "cmd_git_reset"; message=$REPLY; color=91 ;;
+        *" git cherry-pick "*) _get_message "cmd_git_cherry_pick"; message=$REPLY; color=95 ;;
+        *" python "*) _get_message "cmd_python"; message=$REPLY; color=95 ;;
+        *" pip "*) _get_message "cmd_pip"; message=$REPLY; color=92 ;;
+        *" npm install "*) _get_message "cmd_npm_install"; message=$REPLY; color=91 ;;
+        *" npm start "*) _get_message "cmd_npm_start"; message=$REPLY; color=94 ;;
+        *" npm run build "*) _get_message "cmd_npm_build"; message=$REPLY; color=95 ;;
+        *" yarn "*) _get_message "cmd_yarn"; message=$REPLY; color=93 ;;
+        *" rm -rf"*) _get_message "cmd_rm"; message=$REPLY; color=96 ;;
+        *" mv "*) _get_message "cmd_mv"; message=$REPLY; color=92 ;;
+        *" cp "*) _get_message "cmd_cp"; message=$REPLY; color=94 ;;
+        *" cd "*) _get_message "cmd_cd"; message=$REPLY; color=93 ;;
+        *" ls "*) _get_message "cmd_ls"; message=$REPLY; color=92 ;;
+        *" cat "*) _get_message "cmd_cat"; message=$REPLY; color=94 ;;
+        *" vim "*) _get_message "cmd_vim"; message=$REPLY; color=91 ;;
+        *" nano "*) _get_message "cmd_nano"; message=$REPLY; color=95 ;;
+        *" docker build "*) _get_message "cmd_docker_build"; message=$REPLY; color=94 ;;
+        *" docker run "*) _get_message "cmd_docker_run"; message=$REPLY; color=95 ;;
+        *" docker ps "*) _get_message "cmd_docker_ps"; message=$REPLY; color=92 ;;
+        *" docker stop "*) _get_message "cmd_docker_stop"; message=$REPLY; color=91 ;;
+        *" sudo "*) _get_message "cmd_sudo"; message=$REPLY; color=91 ;;
+        *" chmod "*) _get_message "cmd_chmod"; message=$REPLY; color=93 ;;
+        *" chown "*) _get_message "cmd_chown"; message=$REPLY; color=94 ;;
+        *" scp "*) _get_message "cmd_scp"; message=$REPLY; color=92 ;;
+        *" rsync "*) _get_message "cmd_rsync"; message=$REPLY; color=95 ;;
+        *" kill "*) _get_message "cmd_kill"; message=$REPLY; color=91 ;;
+        *" ps aux"*) _get_message "cmd_ps"; message=$REPLY; color=93 ;;
+        *" htop "*) _get_message "cmd_htop"; message=$REPLY; color=94 ;;
+        *" df -h"*) _get_message "cmd_df"; message=$REPLY; color=92 ;;
+        *" free -m"*) _get_message "cmd_free"; message=$REPLY; color=95 ;;
+        *" whoami "*) _get_message "cmd_whoami"; message=$REPLY; color=96 ;;
+        *" date "*) _get_message "cmd_date"; message=$REPLY; color=91 ;;
+        *" uptime "*) _get_message "cmd_uptime"; message=$REPLY; color=94 ;;
+        *" reboot "*) _get_message "cmd_reboot"; message=$REPLY; color=93 ;;
+        *" shutdown "*) _get_message "cmd_shutdown"; message=$REPLY; color=92 ;;
         *) return ;;
     esac
     [[ -n "$message" ]] && echo -e "\e[${color}m${message}\e[0m"
@@ -285,7 +312,7 @@ troll_cmd() {
 # Information functions (REPLY-based: no subshells, no `date`, single git call)
 _zbt_venv_info() {
     REPLY=""
-    [[ -n $VIRTUAL_ENV ]] && REPLY=$'\e[93m'"🐍 (${VIRTUAL_ENV:t})"$'\e[0m'
+    [[ -n $VIRTUAL_ENV ]] && REPLY="%F{${ZBT_COLOR_VENV:-11}}🐍 (${${VIRTUAL_ENV:t}//\%/%%})%f"
 }
 venv_info() { _zbt_venv_info; echo -n "$REPLY"; }
 
@@ -303,14 +330,19 @@ _zbt_in_git_repo() {
 
 _zbt_git_info() {
     REPLY=""
+    [[ "${ZBT_GIT_SHOW:-true}" == true ]] || return
     _zbt_in_git_repo || return
-    # One git call gives both branch (first line "## ...") and dirty state (remaining lines)
-    local -a lines
-    lines=("${(@f)$(git --no-optional-locks status --porcelain -b 2>/dev/null)}")
+
+    # One git call gives the branch and upstream tracking (first line "## ...")
+    # plus the dirty state (remaining lines).
+    local -a lines opts
+    opts=(--porcelain -b)
+    [[ "${ZBT_GIT_UNTRACKED:-true}" == true ]] || opts+=(-uno)
+    lines=("${(@f)$(git --no-optional-locks status $opts 2>/dev/null)}")
     [[ -z "${lines[1]}" ]] && return
 
-    local branch="${lines[1]#\#\# }"
-    branch="${branch%%...*}"
+    local head="${lines[1]#\#\# }"
+    local branch="${head%%...*}"
     branch="${branch%% \[*}"
     case "$branch" in
         "HEAD (no branch)") branch=$(git describe --tags --always 2>/dev/null) ;;
@@ -318,10 +350,27 @@ _zbt_git_info() {
         "Initial commit on "*) branch="${branch#Initial commit on }" ;;
     esac
 
+    # "[ahead 2, behind 1]" -> " ⇡2 ⇣1"
+    local extra="" track ahead behind
+    if [[ "${ZBT_GIT_AHEAD_BEHIND:-true}" == true && "$head" == *'['* ]]; then
+        track="${head##*\[}"; track="${track%%\]*}"
+        if [[ "$track" == *"ahead "* ]]; then
+            ahead="${track##*ahead }"; ahead="${ahead%%[^0-9]*}"
+            [[ -n "$ahead" ]] && extra+=" ⇡${ahead}"
+        fi
+        if [[ "$track" == *"behind "* ]]; then
+            behind="${track##*behind }"; behind="${behind%%[^0-9]*}"
+            [[ -n "$behind" ]] && extra+=" ⇣${behind}"
+        fi
+    fi
+
+    # '%' is special in prompts: escape it so a branch named "50%" renders correctly
+    branch="${branch//\%/%%}"
+
     if (( ${#lines[@]} > 1 )); then
-        REPLY=$'\e[91m'"🌟(${branch}*)"$'\e[0m'
+        REPLY="%F{${ZBT_COLOR_GIT_DIRTY:-9}}🌟(${branch}*${extra})%f"
     else
-        REPLY=$'\e[92m'"🌿(${branch})"$'\e[0m'
+        REPLY="%F{${ZBT_COLOR_GIT_CLEAN:-10}}🌿(${branch}${extra})%f"
     fi
 }
 git_info() { _zbt_git_info; echo -n "$REPLY"; }
@@ -337,8 +386,14 @@ _zbt_time_icon() {
 time_icon() { _zbt_time_icon; echo "$REPLY"; }
 
 
+# Every download goes through here: connect timeout plus a hard total time limit,
+# so a stalled proxy can never hang the shell.
+_zbt_curl() {
+    curl -sf --connect-timeout 5 --max-time "${ZBT_CURL_MAX_TIME:-10}" "$@"
+}
+
 check_internet() {
-    curl --connect-timeout 3 -sf https://raw.githubusercontent.com >/dev/null 2>&1
+    _zbt_curl --connect-timeout 3 https://raw.githubusercontent.com >/dev/null 2>&1
 }
 
 # Compare semver versions. Returns 0 if $1 > $2
@@ -364,7 +419,7 @@ update_zshrc() {
     fi
     
     # Get remote version
-    local remote_version=$(curl -sf --connect-timeout 5 https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/version.txt 2>/dev/null)
+    local remote_version=$(_zbt_curl https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/version.txt 2>/dev/null)
     if [[ -z "$remote_version" ]]; then
         echo -e "\e[91mUnable to download version information.\e[0m"
         return 1
@@ -402,22 +457,16 @@ update_zshrc() {
             user_config=$(sed -n '/^# === ZSH_BUDDY_THEME_END ===/,$ p' ~/.zshrc | tail -n +2 | sed '/^# Everything below this line/d; /^# Add your custom PATH/d')
         fi
 
-        # Preserve user's language setting
-        local user_lang=""
-        if [[ -f "$HOME/.troll_themer/config" ]]; then
-            user_lang=$(grep '^TROLL_LANG=' "$HOME/.troll_themer/config" | tail -1 | cut -d'"' -f2)
-        fi
-
         # Download ALL files to temp dir first (atomic)
         local tmp_dir=$(mktemp -d)
         local download_ok=true
         
         echo -e "\e[96m📥 Downloading update files...\e[0m"
         
-        curl -sf -o "$tmp_dir/zshrc" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.zshrc || download_ok=false
-        curl -sf -o "$tmp_dir/config" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/config || download_ok=false
-        curl -sf -o "$tmp_dir/vi.txt" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/lang/vi.txt || download_ok=false
-        curl -sf -o "$tmp_dir/en.txt" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/lang/en.txt || download_ok=false
+        _zbt_curl -o "$tmp_dir/zshrc" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.zshrc || download_ok=false
+        _zbt_curl -o "$tmp_dir/config" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/config || download_ok=false
+        _zbt_curl -o "$tmp_dir/vi.txt" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/lang/vi.txt || download_ok=false
+        _zbt_curl -o "$tmp_dir/en.txt" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/lang/en.txt || download_ok=false
 
         if [[ "$download_ok" == false ]]; then
             rm -rf "$tmp_dir"
@@ -444,17 +493,12 @@ update_zshrc() {
             echo -e "\e[92m✅ .zshrc updated successfully!\e[0m"
         fi
 
-        # Apply .troll_themer files
+        # Apply .troll_themer files. The config file holds the user's settings,
+        # so it is only installed when missing.
         mkdir -p "$HOME/.troll_themer/lang"
-        cp "$tmp_dir/config" "$HOME/.troll_themer/config"
+        [[ -f "$HOME/.troll_themer/config" ]] || cp "$tmp_dir/config" "$HOME/.troll_themer/config"
         cp "$tmp_dir/vi.txt" "$HOME/.troll_themer/lang/vi.txt"
         cp "$tmp_dir/en.txt" "$HOME/.troll_themer/lang/en.txt"
-
-        # Restore user's language setting if it was customized
-        if [[ -n "$user_lang" ]]; then
-            local tmp_cfg=$(mktemp)
-            sed "s/^TROLL_LANG=\".*\"/TROLL_LANG=\"$user_lang\"/" "$HOME/.troll_themer/config" > "$tmp_cfg" && mv "$tmp_cfg" "$HOME/.troll_themer/config"
-        fi
 
         # Cleanup temp dir
         rm -rf "$tmp_dir"
@@ -472,9 +516,9 @@ update_zshrc() {
             if [[ "$response" =~ ^[Yy]$ ]]; then
                 echo -e "\e[96m📥 Downloading .troll_themer configuration...\e[0m"
                 mkdir -p "$HOME/.troll_themer/lang"
-                curl -sf -o "$HOME/.troll_themer/config" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/config
-                curl -sf -o "$HOME/.troll_themer/lang/vi.txt" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/lang/vi.txt
-                curl -sf -o "$HOME/.troll_themer/lang/en.txt" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/lang/en.txt
+                _zbt_curl -o "$HOME/.troll_themer/config" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/config
+                _zbt_curl -o "$HOME/.troll_themer/lang/vi.txt" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/lang/vi.txt
+                _zbt_curl -o "$HOME/.troll_themer/lang/en.txt" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/lang/en.txt
                 echo -e "\e[92m✅ .troll_themer folder downloaded successfully!\e[0m"
                 echo -e "Run: source ~/.zshrc to reload configuration"
             fi
@@ -573,8 +617,7 @@ clean_backups() {
 
 # Add alias for easier updating
 alias update-zshrc="update_zshrc"
-last_troll_time=0
-troll_interval=$((5 * 60))  # 5 minutes
+_zbt_last_troll_time=0
 
 # Mode management - Serious mode to disable trolling temporarily
 check_serious_mode() {
@@ -586,32 +629,29 @@ alias serious="export TROLL_MODE=serious && echo -e '\e[93m🔇 Serious mode act
 alias troll="unset TROLL_MODE && echo -e '\e[95m🎭 Troll mode activated. Let the fun begin!\e[0m'"
 alias mode-status="[[ -n \$TROLL_MODE ]] && echo -e '\e[93mCurrent mode: \$TROLL_MODE\e[0m' || echo -e '\e[95mCurrent mode: troll (default)\e[0m'"
 
-# Prompt hooks
+# Prompt hooks. Registered with add-zsh-hook so they coexist with hooks from
+# other plugins and from the user's own config instead of replacing them.
 
-preexec() {
-    _zbt_now_ms; timer=$REPLY
-    last_cmd="$1"
+_zbt_preexec() {
+    local REPLY   # keep the user's $REPLY untouched
+    _zbt_now_ms; _zbt_timer=$REPLY
 
     # Skip trolling if in serious mode
-    if check_serious_mode; then
-        return
+    check_serious_mode && return
+
+    # Time-based message, at most once per ZBT_TROLL_INTERVAL seconds
+    local now=$EPOCHSECONDS
+    if (( now - _zbt_last_troll_time >= ${ZBT_TROLL_INTERVAL:-300} )); then
+        troll_by_time
+        _zbt_last_troll_time=$now
     fi
 
-    # Call troll_by_time only after a certain time interval
-    current_time=$EPOCHSECONDS
-    if (( current_time - last_troll_time >= troll_interval )); then
-        troll_by_time   # prints its own message (if any), no subshell
-        last_troll_time=$current_time
-    fi
-
-    # Call troll_cmd (prints its own message, if any)
-    troll_cmd "$last_cmd"
+    # Command-specific message
+    troll_cmd "$1"
 }
 
-precmd() {
-    local _exit_code=$?
-
-    local _icon _venv _git
+_zbt_precmd() {
+    local REPLY _icon _venv _git   # keep the user's $REPLY untouched
     _zbt_time_icon; _icon="$REPLY"
     _zbt_venv_info; _venv="$REPLY"
     _zbt_git_info;  _git="$REPLY"
@@ -619,23 +659,18 @@ precmd() {
     PS1="%F{green}╭─${_icon}%f %F{red}%D{%H:%M:%S}%f %F{green}─%f %F{cyan}%n@%m %F{magenta}%~%f ${_venv} ${_git}
 %F{green}╰─➜  %f"
 
-    if [[ -n $timer ]]; then
+    RPROMPT=""
+    if [[ -n $_zbt_timer ]]; then
         _zbt_now_ms
-        RPROMPT="%F{cyan}[$((REPLY-timer))ms]%f"
-        unset timer
+        local elapsed=$(( REPLY - _zbt_timer ))
+        (( elapsed >= ${ZBT_EXEC_TIME_MIN_MS:-0} )) && RPROMPT="%F{cyan}[${elapsed}ms]%f"
+        unset _zbt_timer
     fi
-
-    # Remove "command not found" (exit 127) from history file
-    if (( _exit_code == 127 )) && [[ -f "$HISTFILE" ]]; then
-        local _tmp_hist
-        _tmp_hist=$(mktemp)
-        sed '$d' "$HISTFILE" > "$_tmp_hist" && mv "$_tmp_hist" "$HISTFILE"
-        fc -R
-    fi
-    
-    # Remove cpu_troll because it's time-consuming to process
-    unset last_cmd
 }
+
+autoload -Uz add-zsh-hook
+add-zsh-hook preexec _zbt_preexec
+add-zsh-hook precmd  _zbt_precmd
 
 # Custom clear function
 my_clear() {
@@ -683,13 +718,13 @@ init_theme() {
   fi
   
   # Get last update check time
-  LAST_UPDATE_CHECK_FILE="$HOME/.troll_themer/update"
-  LAST_CHECK=0
+  local LAST_UPDATE_CHECK_FILE="$HOME/.troll_themer/update"
+  local LAST_CHECK=0 CURRENT_DATE
   [[ -f "$LAST_UPDATE_CHECK_FILE" ]] && LAST_CHECK=$(<"$LAST_UPDATE_CHECK_FILE")
 
   strftime -s CURRENT_DATE '%Y-%m-%d' $EPOCHSECONDS
-  # Check if the date has changed
-  if [[ "$CURRENT_DATE" != "$LAST_CHECK" ]]; then
+  # Check once a day for a new version (ZBT_UPDATE_CHECK=false disables it)
+  if [[ "${ZBT_UPDATE_CHECK:-true}" == true && "$CURRENT_DATE" != "$LAST_CHECK" ]]; then
     # remove .zsh_update_check file from home directory
     rm -f "$HOME/.zsh_update_check"
     
@@ -723,7 +758,9 @@ init_theme() {
 } 
 
 # Call initialization only if this is an interactive shell
-[[ $- == *i* ]] && init_theme
+if [[ $- == *i* ]]; then
+    init_theme
+fi
 
 # === ZSH_BUDDY_THEME_END ===
 # Everything below this line is preserved during theme updates.

@@ -4,14 +4,16 @@ Your coding buddy — a motivational Zsh theme with work-life balance reminders,
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Zsh Version](https://img.shields.io/badge/Zsh-5.0%2B-brightgreen)](https://www.zsh.org/)
-[![Version](https://img.shields.io/badge/Version-1.4.1-orange)](https://github.com/hieudnm/zsh-buddy-theme)
+[![Version](https://img.shields.io/badge/Version-1.5.0-orange)](https://github.com/hieudnm/zsh-buddy-theme)
+[![test](https://github.com/hieudnm/zsh-buddy-theme/actions/workflows/test.yml/badge.svg)](https://github.com/hieudnm/zsh-buddy-theme/actions/workflows/test.yml)
 
 ## ✨ Features
 
 - 🌍 **Multi-language support** (Vietnamese, English) with easy extension system
 - 🕐 **Time-based buddy messages** with special overtime reminders (17:30-18:30)
 - ⚡ **Command-specific responses** for Git, Docker, npm, Python, and 50+ commands
-- 🎨 **Dynamic prompt** with time icons, git status, virtual environment info
+- 🎨 **Dynamic prompt** with time icons, git branch / dirty state / commits ahead-behind (⇡⇣), virtual environment info
+- 🚀 **Fork-free prompt** - one `git` call inside repositories, none outside; fast even on Windows (Git Bash)
 - 📱 **System detection** (WSL, macOS, Windows, Linux)
 - ⚙️ **Configurable** language settings via config file or environment variables
 - 🔄 **Auto-setup** - automatically creates required directories and default files
@@ -156,6 +158,8 @@ zsh-buddy-theme/
 │   └── lang/                # Language packs directory
 │       ├── vi.txt           # Vietnamese messages
 │       └── en.txt           # English messages
+├── tests/run.zsh            # Test suite (zsh tests/run.zsh)
+├── .github/workflows/       # CI: runs the tests on Linux and macOS
 ├── version.txt              # Theme version
 ├── install.sh               # One-line installer script
 ├── preview.png              # Theme preview screenshot
@@ -205,6 +209,42 @@ Git, Docker, npm, yarn, Python, pip, system commands (ls, cd, mv, cp, rm), text 
 
 ## ⚙️ Configuration Options
 
+### Settings
+
+Every setting can be given in two ways, and you never have to edit the theme code:
+
+1. As a `KEY="value"` line in `~/.troll_themer/config` (this file is **never overwritten** by `update`), or
+2. As an environment variable, exported before the theme loads (for example in `~/.zshenv`). Environment variables win over the config file.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `TROLL_LANG` | `vi` | Language pack (`vi`, `en`, or your own) |
+| `TROLL_MODE` | - | `serious` disables all messages |
+| `ZBT_HISTFILE` | `~/.zhistory` | History file used by the theme's history setup |
+| `ZBT_UPDATE_CHECK` | `true` | Check once a day for a new theme version |
+| `ZBT_CURL_MAX_TIME` | `10` | Hard time limit in seconds for every download, so a stalled network can never hang the shell |
+| `ZBT_TROLL_INTERVAL` | `300` | Seconds between time-based messages |
+| `ZBT_TROLL_CHANCE` | `10` | Percent chance to show a time-based message before a command |
+| `ZBT_OVERTIME_START` / `ZBT_OVERTIME_END` | `17:30` / `18:30` | Window for the work-life balance reminders |
+| `ZBT_EXEC_TIME_MIN_MS` | `0` | Only show `[N ms]` on the right when the command took at least N ms |
+| `ZBT_GIT_SHOW` | `true` | Show the git block |
+| `ZBT_GIT_UNTRACKED` | `true` | Count untracked files as "dirty". Set to `false` on huge repositories to make the prompt faster |
+| `ZBT_GIT_AHEAD_BEHIND` | `true` | Show commits ahead/behind upstream as `⇡N ⇣N` (no extra git call) |
+| `ZBT_COLOR_GIT_CLEAN` / `ZBT_COLOR_GIT_DIRTY` / `ZBT_COLOR_VENV` | `10` / `9` / `11` | Prompt colors: a name (`red`, `green`) or a 0-255 index |
+
+Example `~/.troll_themer/config`:
+
+```bash
+TROLL_LANG="en"
+ZBT_TROLL_INTERVAL=900        # a message every 15 minutes at most
+ZBT_EXEC_TIME_MIN_MS=1000     # only show the timer for slow commands
+ZBT_GIT_UNTRACKED=false       # faster prompt in a huge monorepo
+```
+
+### Hooks
+
+The theme registers its prompt hooks with `add-zsh-hook`, so your own `precmd` / `preexec` functions and other plugins keep working next to it. All theme functions and variables are prefixed with `_zbt_` / `ZBT_`; the public commands are `update`, `serious`, `troll`, `mode-status`, `uninstall` and `clean-backups`.
+
 ### Custom User Config (Preserved During Updates)
 
 Add your custom PATH, aliases, exports, and other config **at the end** of `.zshrc`, after the `ZSH_BUDDY_THEME_END` marker:
@@ -232,6 +272,14 @@ When you run `update`, the theme code above the marker is replaced with the new 
 - `.troll_themer/config` - Main configuration file
 - `.troll_themer/update` - Update check timestamp
 - `.troll_themer/lang/*.txt` - Language message files
+
+## 🧪 Tests
+
+```bash
+zsh tests/run.zsh
+```
+
+A dependency-free zsh test suite (config parsing, git block, hooks, message matching) that runs in an isolated `$HOME`. It also runs on every push via GitHub Actions on Linux and macOS.
 
 ## 🔧 Requirements
 

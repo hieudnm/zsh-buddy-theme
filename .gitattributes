@@ -1,0 +1,10 @@
+# Shell files must keep LF line endings on every platform (CRLF breaks zsh/bash scripts).
+.zshrc        text eol=lf
+*.zsh         text eol=lf
+*.sh          text eol=lf
+*.yml         text eol=lf
+*.txt         text eol=lf
+.troll_themer/config text eol=lf
+*.md          text
+*.png         binary
+*.ttf         binary
