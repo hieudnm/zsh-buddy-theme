@@ -4,7 +4,7 @@ Your coding buddy — a motivational Zsh theme with work-life balance reminders,
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Zsh Version](https://img.shields.io/badge/Zsh-5.0%2B-brightgreen)](https://www.zsh.org/)
-[![Version](https://img.shields.io/badge/Version-1.4.0-orange)](https://github.com/hieudnm/zsh-buddy-theme)
+[![Version](https://img.shields.io/badge/Version-1.4.1-orange)](https://github.com/hieudnm/zsh-buddy-theme)
 
 ## ✨ Features
 
@@ -321,7 +321,7 @@ On Windows the theme runs inside the MSYS runtime (Git for Windows / MSYS2). Thr
 
 Spawning a process (`date`, `git`, `basename`, a `$(...)` subshell) costs well under 1 ms on Linux/macOS but 10-30 ms on MSYS, and 100 ms+ when an antivirus inspects every new process. A prompt that spawns ten of them adds a full second per command.
 
-- Since **v1.4.0** the theme is fork-free: time comes from the `zsh/datetime` builtin, messages are passed through `$REPLY` instead of `$(func)`, git status is a single `git status --porcelain -b` call that is skipped outside repositories, and `zsh-autosuggestions` runs synchronously (its async mode forks a process on every keystroke).
+- Since **v1.4** the theme is fork-free: time comes from the `zsh/datetime` builtin, messages are passed through `$REPLY` instead of `$(func)`, git status is a single `git status --porcelain -b` call that is skipped outside repositories, and `zsh-autosuggestions` runs synchronously (its async mode forks a process on every keystroke).
 - Check your own cost of one spawn:
   ```zsh
   zmodload zsh/datetime; s=$EPOCHREALTIME; date >/dev/null; printf '%.0f ms per spawn\n' $(( (EPOCHREALTIME-s)*1000 ))

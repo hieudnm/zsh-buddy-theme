@@ -1,9 +1,10 @@
-# Zsh Buddy Theme - Version 1.4.0
+# Zsh Buddy Theme - Version 1.4.1
 # A dynamic, humorous Vietnamese developer-focused Zsh theme
 # Repository: https://github.com/hieudnm/zsh-buddy-theme
 
 # zsh builtins for time/date (avoid forking `date`: ~130ms per fork on Windows/MSYS with AV)
-zmodload zsh/datetime
+zmodload zsh/datetime 2>/dev/null || \
+    print -u2 "Zsh Buddy Theme: the zsh/datetime module is missing; time-based messages and timers will not work."
 
 # History configuration
 HISTFILE=$HOME/.zhistory
@@ -51,14 +52,14 @@ alias uninstall="uninstall_zsh_buddy"
 alias clean-backups="clean_backups"
 
 # Version for update checking
-ZSHRC_VERSION="1.4.0"
+ZSHRC_VERSION="1.4.1"
 THEME_NAME="Zsh Buddy Theme"
 troll_colors=(91 92 93 94 95 96) # red green yellow blue magenta cyan
 
 # Current time in milliseconds, pure zsh (no fork). Sets REPLY.
 _zbt_now_ms() {
     local -i ms
-    (( ms = EPOCHREALTIME * 1000 ))
+    (( ms = ${EPOCHREALTIME:-$EPOCHSECONDS} * 1000 ))   # EPOCHREALTIME needs zsh >= 5.0.6
     REPLY=$ms
 }
 _zbt_timer_now() { _zbt_now_ms; echo "$REPLY"; }
@@ -84,7 +85,8 @@ load_language_config() {
         while IFS= read -r line; do
             if [[ "$line" == TROLL_LANG=* ]]; then
                 found="${line#TROLL_LANG=}"
-                found="${found//\"/}"
+                found="${found%%#*}"              # drop trailing comment
+                found="${found//[\"\' $'\t'$'\r']/}"  # drop quotes, blanks, CR
             fi
         done < "$config_file"
         [[ -n "$found" ]] && lang="$found"
@@ -666,10 +668,12 @@ bindkey '^K' kill-line           # Ctrl + K: Delete from cursor to end of line
 bindkey '^[a' beginning-of-line   # Alt + A: Jump to beginning of line  
 bindkey '^[e' end-of-line         # Alt + E: Jump to end of line  
 
-# zsh-autosuggestions is already sourced above. Disable its async mode: on
-# Windows/MSYS it forks a child process on EVERY keystroke (very slow with AV).
-# The default 'history' strategy is pure zsh and fast enough synchronously.
-unset ZSH_AUTOSUGGEST_USE_ASYNC
+# zsh-autosuggestions is already sourced above. On Windows/MSYS and Cygwin its
+# async mode forks a child process on EVERY keystroke (very slow with AV), so
+# use the synchronous path there; the default 'history' strategy is pure zsh.
+if [[ -n "$MSYSTEM" || "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
+    unset ZSH_AUTOSUGGEST_USE_ASYNC
+fi
 
 # Initialization - check update first, then display quotes
 init_theme() {
