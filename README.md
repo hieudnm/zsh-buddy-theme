@@ -4,7 +4,7 @@ Your coding buddy — a motivational Zsh theme with work-life balance reminders,
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Zsh Version](https://img.shields.io/badge/Zsh-5.0%2B-brightgreen)](https://www.zsh.org/)
-[![Version](https://img.shields.io/badge/Version-1.5.0-orange)](https://github.com/hieudnm/zsh-buddy-theme)
+[![Version](https://img.shields.io/badge/Version-1.5.1-orange)](https://github.com/hieudnm/zsh-buddy-theme)
 [![test](https://github.com/hieudnm/zsh-buddy-theme/actions/workflows/test.yml/badge.svg)](https://github.com/hieudnm/zsh-buddy-theme/actions/workflows/test.yml)
 
 ## ✨ Features
@@ -46,7 +46,10 @@ The installer will automatically:
 
 2. **Download theme files:**
    ```bash
-   curl -sf -o ~/.zshrc https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.zshrc && mkdir -p "$HOME/.troll_themer/lang"
+   mkdir -p "$HOME/.troll_themer/lang" && curl -sf -o ~/.zshrc https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.zshrc
+   ```
+   ```bash
+   curl -sf -o "$HOME/.troll_themer/zsh-buddy-theme.zsh" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/zsh-buddy-theme.zsh
    ```
    ```bash
    curl -sf -o "$HOME/.troll_themer/config" https://raw.githubusercontent.com/hieudnm/zsh-buddy-theme/main/.troll_themer/config
@@ -150,9 +153,10 @@ Remove all `.zshrc.backup` and `.troll_themer.backup` files. Useful if you want 
 
 ```
 zsh-buddy-theme/
-├── .zshrc                   # Main theme file
+├── .zshrc                   # Tiny loader installed as ~/.zshrc (sources the theme)
+├── zsh-buddy-theme.zsh      # The theme, installed as ~/.troll_themer/zsh-buddy-theme.zsh
 ├── .troll_themer/           # Configuration & resources directory
-│   ├── config               # Language configuration file
+│   ├── config               # Settings file (TROLL_LANG, ZBT_*)
 │   ├── font/                # Included font
 │   │   └── CaskaydiaMonoNerdFontMono-SemiBold.ttf
 │   └── lang/                # Language packs directory
@@ -247,7 +251,7 @@ The theme registers its prompt hooks with `add-zsh-hook`, so your own `precmd` /
 
 ### Custom User Config (Preserved During Updates)
 
-Add your custom PATH, aliases, exports, and other config **at the end** of `.zshrc`, after the `ZSH_BUDDY_THEME_END` marker:
+`~/.zshrc` is a small loader that sources the theme from `~/.troll_themer/zsh-buddy-theme.zsh`. Add your custom PATH, aliases, exports, and other config **at the end** of `~/.zshrc`, after the `ZSH_BUDDY_THEME_END` marker:
 
 ```bash
 # === ZSH_BUDDY_THEME_END ===
@@ -269,6 +273,7 @@ When you run `update`, the theme code above the marker is replaced with the new 
 
 ### Files
 
+- `.troll_themer/zsh-buddy-theme.zsh` - The theme code (replaced atomically by `update`)
 - `.troll_themer/config` - Main configuration file
 - `.troll_themer/update` - Update check timestamp
 - `.troll_themer/lang/*.txt` - Language message files

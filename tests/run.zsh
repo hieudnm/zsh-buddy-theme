@@ -26,7 +26,8 @@ export HOME="$(mktemp -d)"
 mkdir -p "$HOME/.troll_themer/lang"
 cp "$ROOT/.troll_themer/config" "$HOME/.troll_themer/config"
 cp "$ROOT/.troll_themer/lang/"*.txt "$HOME/.troll_themer/lang/"
-unset TROLL_LANG TROLL_MODE VIRTUAL_ENV GIT_DIR
+cp "$ROOT/zsh-buddy-theme.zsh" "$HOME/.troll_themer/zsh-buddy-theme.zsh"
+unset TROLL_LANG TROLL_MODE VIRTUAL_ENV GIT_DIR ZBT_THEME_FILE
 unset -m 'ZBT_*'
 export ZBT_UPDATE_CHECK=false
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
@@ -38,6 +39,20 @@ source "$ROOT/.zshrc"
 assert_eq "$?" 0 "sourcing .zshrc succeeds"
 assert_true '(( ${#MESSAGES} > 50 ))'
 assert_eq "$CURRENT_LANG" "vi" "default language is vi"
+assert_eq "$ZBT_THEME_FILE" "$HOME/.troll_themer/zsh-buddy-theme.zsh" "loader sources the theme from ~/.troll_themer"
+assert_true "(( $(wc -c < "$ROOT/.zshrc") < 4000 ))"   # must stay far below any old theme's byte offset
+assert_eq "$ZSHRC_VERSION" "$(<"$ROOT/version.txt")" "ZSHRC_VERSION matches version.txt"
+
+section "loader"
+typeset out
+out="$(HOME="$(mktemp -d)" zsh -f -c 'curl() { return 22; }; source '"$ROOT"'/.zshrc 2>&1; print "ver=[$ZSHRC_VERSION]"')"
+assert_contains "$out" "download failed" "missing theme + offline: explains, does not crash"
+assert_contains "$out" "ver=[]"          "missing theme + offline: nothing sourced"
+out="$(HOME="$(mktemp -d)" zsh -f -c '
+    curl() { local o; while (( $# )); do [[ $1 == -o ]] && o=$2; shift; done; cp '"$ROOT"'/zsh-buddy-theme.zsh "$o"; }
+    source '"$ROOT"'/.zshrc 2>/dev/null; print "ver=[$ZSHRC_VERSION] file=[$([[ -f $ZBT_THEME_FILE ]] && echo yes)]"')"
+assert_contains "$out" "ver=[$(<"$ROOT/version.txt")]" "missing theme + download works: theme is fetched and sourced"
+assert_contains "$out" "file=[yes]" "downloaded theme is kept for next time"
 
 # ---------------------------------------------------------------------------
 section "config loader"
@@ -208,6 +223,45 @@ unset VIRTUAL_ENV; _zbt_venv_info
 assert_eq "$REPLY" "" "no virtualenv block when inactive"
 
 cd "$ROOT"
+
+# ---------------------------------------------------------------------------
+section "update (network simulated from the repo checkout)"
+# Serve every URL from the local checkout instead of GitHub
+_zbt_curl() {
+    local out="" url="" a
+    for a in "$@"; do
+        [[ "$url" == "" && "$a" == http* ]] && url="$a"
+    done
+    while (( $# )); do [[ "$1" == -o ]] && out="$2"; shift; done
+    [[ "$url" == "https://raw.githubusercontent.com" ]] && return 0
+    local rel="${url#*/main/}"
+    [[ -f "$ROOT/$rel" ]] || return 22
+    if [[ -n "$out" ]]; then cp "$ROOT/$rel" "$out"; else cat "$ROOT/$rel"; fi
+}
+zmodload zsh/stat
+# an installed, older setup with a custom section and a customised config
+printf '# old theme code\n# === ZSH_BUDDY_THEME_END ===\n# Everything below this line is preserved during theme updates.\n# Add your custom PATH, aliases, exports, and other config here.\nexport MY_CUSTOM=1\n' > "$HOME/.zshrc"
+printf 'TROLL_LANG="en"\n' > "$HOME/.troll_themer/config"
+print "old theme" > "$HOME/.troll_themer/zsh-buddy-theme.zsh"
+typeset inode_before="$(zstat +inode "$HOME/.zshrc")"
+typeset real_version="$ZSHRC_VERSION"
+ZSHRC_VERSION="0.0.1"
+update_zshrc >/dev/null 2>&1
+assert_eq "$?" 0 "update_zshrc succeeds"
+ZSHRC_VERSION="$real_version"
+assert_true  'cmp -s "$HOME/.troll_themer/zsh-buddy-theme.zsh" "$ROOT/zsh-buddy-theme.zsh"'
+assert_contains "$(<"$HOME/.zshrc")" 'ZBT_THEME_FILE'   "~/.zshrc is now the loader"
+assert_contains "$(<"$HOME/.zshrc")" 'export MY_CUSTOM=1' "custom section preserved"
+assert_eq "$(<"$HOME/.troll_themer/config")" 'TROLL_LANG="en"' "config file is not overwritten"
+assert_true  '[[ -f "$HOME/.zshrc.backup" ]]'
+assert_true  '[[ "$(zstat +inode "$HOME/.zshrc")" != "$inode_before" ]]'   # new inode: safe while being sourced
+assert_true  '[[ -z "$(print -l "$HOME"/.troll_themer/update.*(N))" ]]'      # temp dir cleaned up
+assert_contains "$(update_zshrc 2>&1)" "latest version" "second run reports up to date"
+
+section "uninstall after an update"
+print y | uninstall_zsh_buddy >/dev/null 2>&1
+assert_eq "$(<"$HOME/.zshrc")" 'export MY_CUSTOM=1' "custom config kept, loader removed (backup from loader era is not restored)"
+assert_false '[[ -d "$HOME/.troll_themer" ]]'
 
 # ---------------------------------------------------------------------------
 print

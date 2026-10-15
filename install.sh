@@ -118,6 +118,13 @@ download_theme() {
     # Create directories
     mkdir -p "$THEME_DIR/lang" "$THEME_DIR/font"
 
+    # Download the theme itself (.zshrc is only a small loader)
+    if ! curl -sf -o "$THEME_DIR/zsh-buddy-theme.zsh" "$REPO_URL/zsh-buddy-theme.zsh"; then
+        print_error "Failed to download zsh-buddy-theme.zsh"
+        exit 1
+    fi
+    print_ok "zsh-buddy-theme.zsh"
+
     # Download config
     if ! curl -sf -o "$THEME_DIR/config" "$REPO_URL/.troll_themer/config"; then
         print_error "Failed to download config"
