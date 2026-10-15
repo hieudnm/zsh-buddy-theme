@@ -1,6 +1,9 @@
-# Zsh Buddy Theme - Version 1.0.1
+# Zsh Buddy Theme - Version 1.4.0
 # A dynamic, humorous Vietnamese developer-focused Zsh theme
 # Repository: https://github.com/hieudnm/zsh-buddy-theme
+
+# zsh builtins for time/date (avoid forking `date`: ~130ms per fork on Windows/MSYS with AV)
+zmodload zsh/datetime
 
 # History configuration
 HISTFILE=$HOME/.zhistory
@@ -32,6 +35,11 @@ zshaddhistory() {
     return 2
 }
 
+# Put the directory holding is-at-least/add-zsh-hook/colors first in fpath.
+# autoload searches fpath linearly; on Windows/MSYS each directory probe costs
+# several ms, so finding them at position 1 instead of ~14 saves ~100ms each.
+[[ -d /usr/share/zsh/functions/Misc ]] && fpath=(/usr/share/zsh/functions/Misc $fpath)
+
 # Load zsh-autosuggestions plugin
 [[ -f "$HOME/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh" ]] && source "$HOME/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh"
 
@@ -43,23 +51,17 @@ alias uninstall="uninstall_zsh_buddy"
 alias clean-backups="clean_backups"
 
 # Version for update checking
-ZSHRC_VERSION="1.3.0"
+ZSHRC_VERSION="1.4.0"
 THEME_NAME="Zsh Buddy Theme"
 troll_colors=(91 92 93 94 95 96) # red green yellow blue magenta cyan
 
-# Detect nanosecond support (GNU date has %N, macOS BSD date does not)
-_zbt_has_nanoseconds=false
-if [[ "$(date +%N 2>/dev/null)" =~ ^[0-9]+$ ]]; then
-    _zbt_has_nanoseconds=true
-fi
-
-_zbt_timer_now() {
-    if [[ "$_zbt_has_nanoseconds" == true ]]; then
-        echo $(( $(date +%s%N) / 1000000 ))
-    else
-        echo $(( $(date +%s) * 1000 ))
-    fi
+# Current time in milliseconds, pure zsh (no fork). Sets REPLY.
+_zbt_now_ms() {
+    local -i ms
+    (( ms = EPOCHREALTIME * 1000 ))
+    REPLY=$ms
 }
+_zbt_timer_now() { _zbt_now_ms; echo "$REPLY"; }
 
 # Language system
 typeset -A MESSAGES  # Associative array to store messages
@@ -78,11 +80,17 @@ load_language_config() {
         lang="$TROLL_LANG"
     # Then check config file
     elif [[ -f "$config_file" ]]; then
-        lang=$(grep "^TROLL_LANG=" "$config_file" | cut -d'"' -f2)
-        [[ -z "$lang" ]] && lang="vi"
+        local line found=""
+        while IFS= read -r line; do
+            if [[ "$line" == TROLL_LANG=* ]]; then
+                found="${line#TROLL_LANG=}"
+                found="${found//\"/}"
+            fi
+        done < "$config_file"
+        [[ -n "$found" ]] && lang="$found"
     fi
-    
-    echo "$lang"
+
+    REPLY="$lang"
 }
 
 # Load messages from language file
@@ -124,17 +132,16 @@ load_messages() {
     fi
 }
 
-# Get message by key (returns first match for exact key)
-get_message() {
-    local key="$1"
-    local default_msg="${2:-}"
-    echo "${MESSAGES[$key]:-$default_msg}"
+# Get message by key (returns first match for exact key). Sets REPLY.
+_get_message() {
+    REPLY="${MESSAGES[$1]:-${2:-}}"
 }
+get_message() { _get_message "$@"; echo "$REPLY"; }
 
-# Get random message from category (collects all entries with same prefix)
-get_random_message() {
+# Get random message from category (collects all entries with same prefix). Sets REPLY.
+_get_random_message() {
     local category="$1"
-    local messages=()
+    local -a messages
     local key
 
     for key in "${(@k)MESSAGES}"; do
@@ -143,13 +150,16 @@ get_random_message() {
         fi
     done
 
+    REPLY=""
     if (( ${#messages[@]} > 0 )); then
-        echo "${messages[$((RANDOM % ${#messages[@]} + 1))]}"
+        REPLY="${messages[$((RANDOM % ${#messages[@]} + 1))]}"
     fi
 }
+get_random_message() { _get_random_message "$@"; echo "$REPLY"; }
 
 # Initialize language system
-CURRENT_LANG=$(load_language_config)
+load_language_config
+CURRENT_LANG="$REPLY"
 load_messages "$CURRENT_LANG"
 
 # Function to detect WSL
@@ -174,12 +184,13 @@ detect_wsl() {
 
 # Time-based troll optimization
 troll_by_time() {
-    local hour=$(date +%H)
-    local minute=$(date +%M)
-    
+    local hour minute
+    strftime -s hour '%H' $EPOCHSECONDS
+    strftime -s minute '%M' $EPOCHSECONDS
+
     # Set seed for RANDOM based on current time (seconds from epoch)
-    RANDOM=$(date +%s)  # Use seconds from epoch as seed
-    
+    RANDOM=$EPOCHSECONDS
+
     local random_color=${troll_colors[$((RANDOM % ${#troll_colors[@]}))]}
     local message
     local chance=$((RANDOM % 100))
@@ -192,22 +203,22 @@ troll_by_time() {
 
     # Always show message when calling function (removed 10% probability logic for easier testing)
     if [[ "$force_show_by_time" == true ]]; then
-        message=$(get_random_message "overtime")
+        _get_random_message "overtime"; message=$REPLY
     elif (( chance < 10 )) || [[ "$force_show" == true ]]; then
         case $hour in
-            00|01) message=$(get_random_message "hour_00") ;;
-            02|03) message=$(get_random_message "hour_02") ;;
-            04|05) message=$(get_random_message "hour_04") ;;
-            06|07) message=$(get_random_message "hour_06") ;;
-            08|09) message=$(get_random_message "hour_08") ;;
-            10|11) message=$(get_random_message "hour_10") ;;
-            12|13) message=$(get_random_message "hour_12") ;;
-            14|15) message=$(get_random_message "hour_14") ;;
-            16|17) message=$(get_random_message "hour_16") ;;
-            18|19) message=$(get_random_message "hour_18") ;;
-            20|21) message=$(get_random_message "hour_20") ;;
-            22|23) message=$(get_random_message "hour_22") ;;
-            *) message=$(get_message "hour_other") ;;
+            00|01) _get_random_message "hour_00"; message=$REPLY ;;
+            02|03) _get_random_message "hour_02"; message=$REPLY ;;
+            04|05) _get_random_message "hour_04"; message=$REPLY ;;
+            06|07) _get_random_message "hour_06"; message=$REPLY ;;
+            08|09) _get_random_message "hour_08"; message=$REPLY ;;
+            10|11) _get_random_message "hour_10"; message=$REPLY ;;
+            12|13) _get_random_message "hour_12"; message=$REPLY ;;
+            14|15) _get_random_message "hour_14"; message=$REPLY ;;
+            16|17) _get_random_message "hour_16"; message=$REPLY ;;
+            18|19) _get_random_message "hour_18"; message=$REPLY ;;
+            20|21) _get_random_message "hour_20"; message=$REPLY ;;
+            22|23) _get_random_message "hour_22"; message=$REPLY ;;
+            *) _get_message "hour_other"; message=$REPLY ;;
         esac
     fi
     
@@ -221,67 +232,107 @@ troll_by_time() {
 troll_cmd() {
     local cmd="$1" message color
     case "$cmd" in
-        *git\ commit*) message=$(get_message "cmd_git_commit") color=93 ;;
-        *git\ push*) message=$(get_message "cmd_git_push") color=94 ;;
-        *git\ st*|*git\ status*) message=$(get_message "cmd_git_status") color=92 ;;
-        *git\ pull*) message=$(get_message "cmd_git_pull") color=91 ;;
-        *git\ merge*) message=$(get_message "cmd_git_merge") color=95 ;;
-        *git\ rebase*) message=$(get_message "cmd_git_rebase") color=96 ;;
-        *git\ log*) message=$(get_message "cmd_git_log") color=93 ;;
-        *git\ diff*) message=$(get_message "cmd_git_diff") color=92 ;;
-        *git\ reset*) message=$(get_message "cmd_git_reset") color=91 ;;
-        *git\ cherry-pick*) message=$(get_message "cmd_git_cherry_pick") color=95 ;;
-        *python*) message=$(get_message "cmd_python") color=95 ;;
-        *pip*) message=$(get_message "cmd_pip") color=92 ;;
-        *npm\ install*) message=$(get_message "cmd_npm_install") color=91 ;;
-        *npm\ start*) message=$(get_message "cmd_npm_start") color=94 ;;
-        *npm\ run\ build*) message=$(get_message "cmd_npm_build") color=95 ;;
-        *yarn*) message=$(get_message "cmd_yarn") color=93 ;;
-        *rm\ -rf*) message=$(get_message "cmd_rm") color=96 ;;
-        *mv*) message=$(get_message "cmd_mv") color=92 ;;
-        *cp*) message=$(get_message "cmd_cp") color=94 ;;
-        *cd*) message=$(get_message "cmd_cd") color=93 ;;
-        *ls*) message=$(get_message "cmd_ls") color=92 ;;
-        *cat*) message=$(get_message "cmd_cat") color=94 ;;
-        *vim*) message=$(get_message "cmd_vim") color=91 ;;
-        *nano*) message=$(get_message "cmd_nano") color=95 ;;
-        *docker\ build*) message=$(get_message "cmd_docker_build") color=94 ;;
-        *docker\ run*) message=$(get_message "cmd_docker_run") color=95 ;;
-        *docker\ ps*) message=$(get_message "cmd_docker_ps") color=92 ;;
-        *docker\ stop*) message=$(get_message "cmd_docker_stop") color=91 ;;
-        *sudo*) message=$(get_message "cmd_sudo") color=91 ;;
-        *chmod*) message=$(get_message "cmd_chmod") color=93 ;;
-        *chown*) message=$(get_message "cmd_chown") color=94 ;;
-        *scp*) message=$(get_message "cmd_scp") color=92 ;;
-        *rsync*) message=$(get_message "cmd_rsync") color=95 ;;
-        *kill*) message=$(get_message "cmd_kill") color=91 ;;
-        *ps\ aux*) message=$(get_message "cmd_ps") color=93 ;;
-        *htop*) message=$(get_message "cmd_htop") color=94 ;;
-        *df\ -h*) message=$(get_message "cmd_df") color=92 ;;
-        *free\ -m*) message=$(get_message "cmd_free") color=95 ;;
-        *whoami*) message=$(get_message "cmd_whoami") color=96 ;;
-        *date*) message=$(get_message "cmd_date") color=91 ;;
-        *uptime*) message=$(get_message "cmd_uptime") color=94 ;;
-        *reboot*) message=$(get_message "cmd_reboot") color=93 ;;
-        *shutdown*) message=$(get_message "cmd_shutdown") color=92 ;;
+        *git\ commit*) _get_message "cmd_git_commit"; message=$REPLY; color=93 ;;
+        *git\ push*) _get_message "cmd_git_push"; message=$REPLY; color=94 ;;
+        *git\ st*|*git\ status*) _get_message "cmd_git_status"; message=$REPLY; color=92 ;;
+        *git\ pull*) _get_message "cmd_git_pull"; message=$REPLY; color=91 ;;
+        *git\ merge*) _get_message "cmd_git_merge"; message=$REPLY; color=95 ;;
+        *git\ rebase*) _get_message "cmd_git_rebase"; message=$REPLY; color=96 ;;
+        *git\ log*) _get_message "cmd_git_log"; message=$REPLY; color=93 ;;
+        *git\ diff*) _get_message "cmd_git_diff"; message=$REPLY; color=92 ;;
+        *git\ reset*) _get_message "cmd_git_reset"; message=$REPLY; color=91 ;;
+        *git\ cherry-pick*) _get_message "cmd_git_cherry_pick"; message=$REPLY; color=95 ;;
+        *python*) _get_message "cmd_python"; message=$REPLY; color=95 ;;
+        *pip*) _get_message "cmd_pip"; message=$REPLY; color=92 ;;
+        *npm\ install*) _get_message "cmd_npm_install"; message=$REPLY; color=91 ;;
+        *npm\ start*) _get_message "cmd_npm_start"; message=$REPLY; color=94 ;;
+        *npm\ run\ build*) _get_message "cmd_npm_build"; message=$REPLY; color=95 ;;
+        *yarn*) _get_message "cmd_yarn"; message=$REPLY; color=93 ;;
+        *rm\ -rf*) _get_message "cmd_rm"; message=$REPLY; color=96 ;;
+        *mv*) _get_message "cmd_mv"; message=$REPLY; color=92 ;;
+        *cp*) _get_message "cmd_cp"; message=$REPLY; color=94 ;;
+        *cd*) _get_message "cmd_cd"; message=$REPLY; color=93 ;;
+        *ls*) _get_message "cmd_ls"; message=$REPLY; color=92 ;;
+        *cat*) _get_message "cmd_cat"; message=$REPLY; color=94 ;;
+        *vim*) _get_message "cmd_vim"; message=$REPLY; color=91 ;;
+        *nano*) _get_message "cmd_nano"; message=$REPLY; color=95 ;;
+        *docker\ build*) _get_message "cmd_docker_build"; message=$REPLY; color=94 ;;
+        *docker\ run*) _get_message "cmd_docker_run"; message=$REPLY; color=95 ;;
+        *docker\ ps*) _get_message "cmd_docker_ps"; message=$REPLY; color=92 ;;
+        *docker\ stop*) _get_message "cmd_docker_stop"; message=$REPLY; color=91 ;;
+        *sudo*) _get_message "cmd_sudo"; message=$REPLY; color=91 ;;
+        *chmod*) _get_message "cmd_chmod"; message=$REPLY; color=93 ;;
+        *chown*) _get_message "cmd_chown"; message=$REPLY; color=94 ;;
+        *scp*) _get_message "cmd_scp"; message=$REPLY; color=92 ;;
+        *rsync*) _get_message "cmd_rsync"; message=$REPLY; color=95 ;;
+        *kill*) _get_message "cmd_kill"; message=$REPLY; color=91 ;;
+        *ps\ aux*) _get_message "cmd_ps"; message=$REPLY; color=93 ;;
+        *htop*) _get_message "cmd_htop"; message=$REPLY; color=94 ;;
+        *df\ -h*) _get_message "cmd_df"; message=$REPLY; color=92 ;;
+        *free\ -m*) _get_message "cmd_free"; message=$REPLY; color=95 ;;
+        *whoami*) _get_message "cmd_whoami"; message=$REPLY; color=96 ;;
+        *date*) _get_message "cmd_date"; message=$REPLY; color=91 ;;
+        *uptime*) _get_message "cmd_uptime"; message=$REPLY; color=94 ;;
+        *reboot*) _get_message "cmd_reboot"; message=$REPLY; color=93 ;;
+        *shutdown*) _get_message "cmd_shutdown"; message=$REPLY; color=92 ;;
         *) return ;;
     esac
     [[ -n "$message" ]] && echo -e "\e[${color}m${message}\e[0m"
 }
 
-# Information functions
-venv_info() { [[ -n $VIRTUAL_ENV ]] && echo "\e[93m🐍 ($(basename $VIRTUAL_ENV))\e[0m"; }
-git_info() {
-    git rev-parse --is-inside-work-tree &>/dev/null || return
-    local branch=$(git symbolic-ref --short HEAD 2>/dev/null || git describe --tags --always)
-    [[ -n $(git status --porcelain 2>/dev/null) ]] && echo "\e[91m🌟(${branch}*)\e[0m" || echo "\e[92m🌿(${branch})\e[0m"
+# Information functions (REPLY-based: no subshells, no `date`, single git call)
+_zbt_venv_info() {
+    REPLY=""
+    [[ -n $VIRTUAL_ENV ]] && REPLY=$'\e[93m'"🐍 (${VIRTUAL_ENV:t})"$'\e[0m'
 }
-time_icon() {
-    case $(date +%H) in
-        0[0-5]) echo "🌌" ;; 0[6-9]|1[0-1]) echo "🌞" ;;
-        1[2-7]) echo "🌤️" ;; *) echo "🌙" ;;
+venv_info() { _zbt_venv_info; echo -n "$REPLY"; }
+
+# Pure-zsh check: is there a .git (dir or worktree file) in $PWD or any parent?
+# Lets us skip spawning git entirely outside repositories.
+_zbt_in_git_repo() {
+    [[ -n $GIT_DIR ]] && return 0
+    local d=$PWD
+    while [[ -n $d ]]; do
+        [[ -e $d/.git ]] && return 0
+        d=${d%/*}
+    done
+    [[ -e /.git ]]
+}
+
+_zbt_git_info() {
+    REPLY=""
+    _zbt_in_git_repo || return
+    # One git call gives both branch (first line "## ...") and dirty state (remaining lines)
+    local -a lines
+    lines=("${(@f)$(git --no-optional-locks status --porcelain -b 2>/dev/null)}")
+    [[ -z "${lines[1]}" ]] && return
+
+    local branch="${lines[1]#\#\# }"
+    branch="${branch%%...*}"
+    branch="${branch%% \[*}"
+    case "$branch" in
+        "HEAD (no branch)") branch=$(git describe --tags --always 2>/dev/null) ;;
+        "No commits yet on "*) branch="${branch#No commits yet on }" ;;
+        "Initial commit on "*) branch="${branch#Initial commit on }" ;;
+    esac
+
+    if (( ${#lines[@]} > 1 )); then
+        REPLY=$'\e[91m'"🌟(${branch}*)"$'\e[0m'
+    else
+        REPLY=$'\e[92m'"🌿(${branch})"$'\e[0m'
+    fi
+}
+git_info() { _zbt_git_info; echo -n "$REPLY"; }
+
+_zbt_time_icon() {
+    local h
+    strftime -s h '%H' $EPOCHSECONDS
+    case $h in
+        0[0-5]) REPLY="🌌" ;; 0[6-9]|1[0-1]) REPLY="🌞" ;;
+        1[2-7]) REPLY="🌤️" ;; *) REPLY="🌙" ;;
     esac
 }
+time_icon() { _zbt_time_icon; echo "$REPLY"; }
 
 
 check_internet() {
@@ -536,7 +587,7 @@ alias mode-status="[[ -n \$TROLL_MODE ]] && echo -e '\e[93mCurrent mode: \$TROLL
 # Prompt hooks
 
 preexec() {
-    timer=$(_zbt_timer_now)
+    _zbt_now_ms; timer=$REPLY
     last_cmd="$1"
 
     # Skip trolling if in serious mode
@@ -545,27 +596,30 @@ preexec() {
     fi
 
     # Call troll_by_time only after a certain time interval
-    current_time=$(date +%s)
+    current_time=$EPOCHSECONDS
     if (( current_time - last_troll_time >= troll_interval )); then
-        troll_time_message=$(troll_by_time)
-        [[ -n "$troll_time_message" ]] && echo "$troll_time_message"
+        troll_by_time   # prints its own message (if any), no subshell
         last_troll_time=$current_time
     fi
 
-    # Call troll_cmd
-    troll_message=$(troll_cmd "$last_cmd")
-    [[ -n "$troll_message" ]] && echo "$troll_message"
+    # Call troll_cmd (prints its own message, if any)
+    troll_cmd "$last_cmd"
 }
 
 precmd() {
     local _exit_code=$?
 
-    PS1="%F{green}╭─$(time_icon)%f %F{red}%D{%H:%M:%S}%f %F{green}─%f %F{cyan}%n@%m %F{magenta}%~%f $(venv_info) $(git_info)
+    local _icon _venv _git
+    _zbt_time_icon; _icon="$REPLY"
+    _zbt_venv_info; _venv="$REPLY"
+    _zbt_git_info;  _git="$REPLY"
+
+    PS1="%F{green}╭─${_icon}%f %F{red}%D{%H:%M:%S}%f %F{green}─%f %F{cyan}%n@%m %F{magenta}%~%f ${_venv} ${_git}
 %F{green}╰─➜  %f"
-    
+
     if [[ -n $timer ]]; then
-        local now=$(_zbt_timer_now)
-        RPROMPT="%F{cyan}[$((now-timer))ms]%f"
+        _zbt_now_ms
+        RPROMPT="%F{cyan}[$((REPLY-timer))ms]%f"
         unset timer
     fi
 
@@ -585,8 +639,8 @@ precmd() {
 my_clear() {
     command clear
     detect_wsl
-    echo -e "\e[93m$(get_message welcome)\e[0m"
-    echo -e "\e[95m$(get_message tip_mode)\e[0m"
+    _get_message welcome;  echo -e "\e[93m$REPLY\e[0m"
+    _get_message tip_mode; echo -e "\e[95m$REPLY\e[0m"
     if ! check_serious_mode; then
         troll_by_time true
     fi
@@ -612,10 +666,10 @@ bindkey '^K' kill-line           # Ctrl + K: Delete from cursor to end of line
 bindkey '^[a' beginning-of-line   # Alt + A: Jump to beginning of line  
 bindkey '^[e' end-of-line         # Alt + E: Jump to end of line  
 
-# Loading zsh-autosuggestions
-if [[ -f ~/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh ]]; then
-    source ~/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh
-fi
+# zsh-autosuggestions is already sourced above. Disable its async mode: on
+# Windows/MSYS it forks a child process on EVERY keystroke (very slow with AV).
+# The default 'history' strategy is pure zsh and fast enough synchronously.
+unset ZSH_AUTOSUGGEST_USE_ASYNC
 
 # Initialization - check update first, then display quotes
 init_theme() {
@@ -627,9 +681,9 @@ init_theme() {
   # Get last update check time
   LAST_UPDATE_CHECK_FILE="$HOME/.troll_themer/update"
   LAST_CHECK=0
-  [[ -f "$LAST_UPDATE_CHECK_FILE" ]] && LAST_CHECK=$(cat "$LAST_UPDATE_CHECK_FILE")
-  
-  CURRENT_DATE=$(date +%Y-%m-%d)
+  [[ -f "$LAST_UPDATE_CHECK_FILE" ]] && LAST_CHECK=$(<"$LAST_UPDATE_CHECK_FILE")
+
+  strftime -s CURRENT_DATE '%Y-%m-%d' $EPOCHSECONDS
   # Check if the date has changed
   if [[ "$CURRENT_DATE" != "$LAST_CHECK" ]]; then
     # remove .zsh_update_check file from home directory
@@ -649,14 +703,14 @@ init_theme() {
     fi
     
     # Display welcome message
-    echo -e "\e[93m$(get_message welcome)\e[0m"
+    _get_message welcome; echo -e "\e[93m$REPLY\e[0m"
     # Update timestamp first to prevent frequent checks
     echo "$CURRENT_DATE" > "$LAST_UPDATE_CHECK_FILE"
     # Check for updates first
     update_zshrc
   else
-    echo -e "\e[93m$(get_message welcome)\e[0m"
-    echo -e "\e[95m$(get_message tip_mode)\e[0m"
+    _get_message welcome;  echo -e "\e[93m$REPLY\e[0m"
+    _get_message tip_mode; echo -e "\e[95m$REPLY\e[0m"
   fi
   
   # Display WSL info and troll message

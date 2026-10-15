@@ -4,7 +4,7 @@ Your coding buddy — a motivational Zsh theme with work-life balance reminders,
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Zsh Version](https://img.shields.io/badge/Zsh-5.0%2B-brightgreen)](https://www.zsh.org/)
-[![Version](https://img.shields.io/badge/Version-1.3.0-orange)](https://github.com/hieudnm/zsh-buddy-theme)
+[![Version](https://img.shields.io/badge/Version-1.4.0-orange)](https://github.com/hieudnm/zsh-buddy-theme)
 
 ## ✨ Features
 
@@ -311,6 +311,65 @@ brew install font-jetbrains-mono-nerd-font
 
 - Ensure terminal supports UTF-8
 - Try: `export LANG=en_US.UTF-8`
+
+<details>
+<summary><b>🐢 Windows (Git Bash / MSYS2) feels slow? Click to expand</b></summary>
+
+On Windows the theme runs inside the MSYS runtime (Git for Windows / MSYS2). Three things make a shell feel slow there, and they stack. Measure first, then fix the one you actually have.
+
+**1. Every command the prompt spawns is expensive (lag after each Enter)**
+
+Spawning a process (`date`, `git`, `basename`, a `$(...)` subshell) costs well under 1 ms on Linux/macOS but 10-30 ms on MSYS, and 100 ms+ when an antivirus inspects every new process. A prompt that spawns ten of them adds a full second per command.
+
+- Since **v1.4.0** the theme is fork-free: time comes from the `zsh/datetime` builtin, messages are passed through `$REPLY` instead of `$(func)`, git status is a single `git status --porcelain -b` call that is skipped outside repositories, and `zsh-autosuggestions` runs synchronously (its async mode forks a process on every keystroke).
+- Check your own cost of one spawn:
+  ```zsh
+  zmodload zsh/datetime; s=$EPOCHREALTIME; date >/dev/null; printf '%.0f ms per spawn\n' $(( (EPOCHREALTIME-s)*1000 ))
+  ```
+
+**2. Opening a shell takes 1-3 s because of `/etc/profile`**
+
+Git Bash starts `bash --login`, which runs Git for Windows' `/etc/profile` (about ten spawned processes), and only then hands over to zsh via `exec zsh`. Launching zsh with `-l` runs the same file through `/etc/zsh/zprofile`.
+
+Fix: start `zsh.exe` directly and **without** `-l`. In Windows Terminal add a profile whose command line is
+
+```
+"C:\Program Files\Git\usr\bin\zsh.exe"
+```
+
+and put the few things `/etc/profile` normally provides into `~/.zshenv` (read before `.zshrc`, never touched by the theme updater):
+
+```zsh
+# ~/.zshenv - fork-free replacement for /etc/profile when zsh.exe is launched directly
+if [[ -d /mingw64/bin ]]; then
+    export MSYSTEM="${MSYSTEM:-MINGW64}"
+    typeset -U path
+    path=("$HOME/bin" /mingw64/bin /usr/local/bin /usr/bin /bin $path)
+    export PATH
+    export SHELL="${SHELL:-/usr/bin/zsh}"
+    [[ -z "${LC_ALL:-${LC_CTYPE:-$LANG}}" ]] && export LANG=en_US.UTF-8
+    if [[ -z "$SSH_ASKPASS" && -f /mingw64/bin/git-askpass.exe ]]; then
+        export DISPLAY=needs-to-be-defined SSH_ASKPASS=/mingw64/bin/git-askpass.exe
+    fi
+fi
+```
+
+Expected result: a new tab is ready in well under a second.
+
+**3. The shell hangs for exactly 45 seconds, but only sometimes**
+
+If your PC is joined to a company domain and the domain controller is unreachable (working from home, VPN off), every new MSYS process started from a non-MSYS parent (Windows Terminal, VS Code) asks Windows for the name of your primary group. Windows waits 45 s for the domain controller before giving up, then caches the answer for a few minutes, which is why the hang comes and goes. It affects bash just as much as zsh. You can confirm it from PowerShell: `whoami` itself takes 45 s during such a window.
+
+Fix: let the MSYS runtime read your account from local files instead of asking Windows. In an **elevated** Git Bash (right-click, Run as administrator):
+
+```bash
+mkpasswd -c > /etc/passwd
+mkgroup  -c > /etc/group
+```
+
+Afterwards `id` prints your group **name**, not just a number, and new shells start instantly even while `whoami` is still slow. Redo this if you reinstall Git for Windows.
+
+</details>
 
 ## 🤝 Contributing
 
